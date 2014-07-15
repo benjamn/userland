@@ -145,7 +145,6 @@ typedef struct
    int timelapse;                      /// Delay between each picture in timelapse mode. If 0, disable timelapse
    int fullResPreview;                 /// If set, the camera preview port runs at capture resolution. Reduces fps.
    int frameNextMethod;                /// Which method to use to advance to next frame
-   int glCapture;                      /// Save the GL frame-buffer instead of camera output
 
    RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
    RASPICAM_CAMERA_PARAMETERS camera_parameters; /// Camera setup parameters
@@ -192,7 +191,6 @@ static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag);
 #define CommandLink         14
 #define CommandKeypress     15
 #define CommandSignal       16
-#define CommandGLCapture    18
 
 static COMMAND_LIST cmdline_commands[] =
 {
@@ -213,7 +211,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandFullResPreview,"-fullpreview","fp", "Run the preview using the still capture resolution (may reduce preview fps)", 0},
    { CommandKeypress,"-keypress",   "k",  "Wait between captures for a ENTER, X then ENTER to exit", 0},
    { CommandSignal,  "-signal",     "s",  "Wait between captures for a SIGUSR1 from another process", 0},
-   { CommandGLCapture, "-glcapture","gc", "Capture the GL frame-buffer instead of the camera image", 0},
 };
 
 static int cmdline_commands_size = sizeof(cmdline_commands) / sizeof(cmdline_commands[0]);
@@ -287,7 +284,6 @@ static void default_status(RASPISTILL_STATE *state)
    state->timelapse = 0;
    state->fullResPreview = 0;
    state->frameNextMethod = FRAME_NEXT_SINGLE;
-   state->glCapture = 0;
 
    // Setup preview window defaults
    raspipreview_set_defaults(&state->preview_parameters);
@@ -590,10 +586,6 @@ static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
          state->frameNextMethod = FRAME_NEXT_SIGNAL;
          // Reenable the signal
          signal(SIGUSR1, signal_handler);
-         break;
-
-      case CommandGLCapture:
-         state->glCapture = 1;
          break;
 
       default:
@@ -1673,94 +1665,13 @@ int main(int argc, const char **argv)
                }
 
                // We only capture if a filename was specified and it opened
-               if (state.glCapture && output_file)
+               if (output_file)
                {
                   /* Save the next GL framebuffer as the next camera still */
                   int rc = raspitex_capture(&state.raspitex_state, output_file);
                   if (rc != 0)
                      vcos_log_error("Failed to capture GL preview");
                   rename_file(&state, output_file, final_filename, use_filename, frame);
-               }
-               else if (output_file)
-               {
-                  int num, q;
-
-                  // Must do this before the encoder output port is enabled since
-                  // once enabled no further exif data is accepted
-                  if ( state.enableExifTags )
-                  {
-                     add_exif_tags(&state);
-                  }
-                  else
-                  {
-                     mmal_port_parameter_set_boolean(
-                        state.encoder_component->output[0], MMAL_PARAMETER_EXIF_DISABLE, 1);
-                  }
-
-                  // Same with raw, apparently need to set it for each capture, whilst port
-                  // is not enabled
-                  if (state.wantRAW)
-                  {
-                     if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_ENABLE_RAW_CAPTURE, 1) != MMAL_SUCCESS)
-                     {
-                        vcos_log_error("RAW was requested, but failed to enable");
-                     }
-                  }
-
-                  // There is a possibility that shutter needs to be set each loop.
-                  if (mmal_status_to_int(mmal_port_parameter_set_uint32(state.camera_component->control, MMAL_PARAMETER_SHUTTER_SPEED, state.camera_parameters.shutter_speed) != MMAL_SUCCESS))
-                     vcos_log_error("Unable to set shutter speed");
-
-
-                  // Enable the encoder output port
-                  encoder_output_port->userdata = (struct MMAL_PORT_USERDATA_T *)&callback_data;
-
-                  if (state.verbose)
-                     fprintf(stderr, "Enabling encoder output port\n");
-
-                  // Enable the encoder output port and tell it its callback function
-                  status = mmal_port_enable(encoder_output_port, encoder_buffer_callback);
-
-                  // Send all the buffers to the encoder output port
-                  num = mmal_queue_length(state.encoder_pool->queue);
-
-                  for (q=0;q<num;q++)
-                  {
-                     MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
-
-                     if (!buffer)
-                        vcos_log_error("Unable to get a required buffer %d from pool queue", q);
-
-                     if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
-                        vcos_log_error("Unable to send a buffer to encoder output port (%d)", q);
-                  }
-
-                  if (state.verbose)
-                     fprintf(stderr, "Starting capture %d\n", frame);
-
-                  if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1) != MMAL_SUCCESS)
-                  {
-                     vcos_log_error("%s: Failed to start capture", __func__);
-                  }
-                  else
-                  {
-                     // Wait for capture to complete
-                     // For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
-                     // even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
-                     vcos_semaphore_wait(&callback_data.complete_semaphore);
-                     if (state.verbose)
-                        fprintf(stderr, "Finished capture %d\n", frame);
-                  }
-
-                  // Ensure we don't die if get callback with no open file
-                  callback_data.file_handle = NULL;
-
-                  if (output_file != stdout)
-                  {
-                     rename_file(&state, output_file, final_filename, use_filename, frame);
-                  }
-                  // Disable encoder output port
-                  status = mmal_port_disable(encoder_output_port);
                }
 
                if (use_filename)
