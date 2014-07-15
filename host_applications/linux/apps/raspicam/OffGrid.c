@@ -145,7 +145,6 @@ typedef struct
    int timelapse;                      /// Delay between each picture in timelapse mode. If 0, disable timelapse
    int fullResPreview;                 /// If set, the camera preview port runs at capture resolution. Reduces fps.
    int frameNextMethod;                /// Which method to use to advance to next frame
-   int useGL;                          /// Render preview using OpenGL
    int glCapture;                      /// Save the GL frame-buffer instead of camera output
 
    RASPIPREVIEW_PARAMETERS preview_parameters;    /// Preview setup parameters
@@ -193,7 +192,6 @@ static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag);
 #define CommandLink         14
 #define CommandKeypress     15
 #define CommandSignal       16
-#define CommandGL           17
 #define CommandGLCapture    18
 
 static COMMAND_LIST cmdline_commands[] =
@@ -215,7 +213,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandFullResPreview,"-fullpreview","fp", "Run the preview using the still capture resolution (may reduce preview fps)", 0},
    { CommandKeypress,"-keypress",   "k",  "Wait between captures for a ENTER, X then ENTER to exit", 0},
    { CommandSignal,  "-signal",     "s",  "Wait between captures for a SIGUSR1 from another process", 0},
-   { CommandGL,      "-gl",         "g",  "Draw preview to texture instead of using video render component", 0},
    { CommandGLCapture, "-glcapture","gc", "Capture the GL frame-buffer instead of the camera image", 0},
 };
 
@@ -290,7 +287,6 @@ static void default_status(RASPISTILL_STATE *state)
    state->timelapse = 0;
    state->fullResPreview = 0;
    state->frameNextMethod = FRAME_NEXT_SINGLE;
-   state->useGL = 0;
    state->glCapture = 0;
 
    // Setup preview window defaults
@@ -594,10 +590,6 @@ static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
          state->frameNextMethod = FRAME_NEXT_SIGNAL;
          // Reenable the signal
          signal(SIGUSR1, signal_handler);
-         break;
-
-      case CommandGL:
-         state->useGL = 1;
          break;
 
       case CommandGLCapture:
@@ -934,14 +926,10 @@ static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
       goto error;
    }
 
-   if (state->useGL)
-   {
-      status = raspitex_configure_preview_port(&state->raspitex_state, preview_port);
-      if (status != MMAL_SUCCESS)
-      {
-         fprintf(stderr, "Failed to configure preview port for GL rendering");
-         goto error;
-      }
+   status = raspitex_configure_preview_port(&state->raspitex_state, preview_port);
+   if (status != MMAL_SUCCESS) {
+     fprintf(stderr, "Failed to configure preview port for GL rendering");
+     goto error;
    }
 
    state->camera_component = camera;
@@ -1558,8 +1546,7 @@ int main(int argc, const char **argv)
       dump_status(&state);
    }
 
-   if (state.useGL)
-      raspitex_init(&state.raspitex_state);
+   raspitex_init(&state.raspitex_state);
 
    // OK, we have a nice set of parameters. Now set up our components
    // We have three components. Camera, Preview and encoder.
@@ -1569,12 +1556,6 @@ int main(int argc, const char **argv)
    if ((status = create_camera_component(&state)) != MMAL_SUCCESS)
    {
       vcos_log_error("%s: Failed to create camera component", __func__);
-      exit_code = EX_SOFTWARE;
-   }
-   else if ((!state.useGL) && (status = raspipreview_create(&state.preview_parameters)) != MMAL_SUCCESS)
-   {
-      vcos_log_error("%s: Failed to create preview component", __func__);
-      destroy_camera_component(&state);
       exit_code = EX_SOFTWARE;
    }
    else if ((status = create_encoder_component(&state)) != MMAL_SUCCESS)
@@ -1596,19 +1577,6 @@ int main(int argc, const char **argv)
       camera_still_port   = state.camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
       encoder_input_port  = state.encoder_component->input[0];
       encoder_output_port = state.encoder_component->output[0];
-
-      if (! state.useGL)
-      {
-         if (state.verbose)
-            fprintf(stderr, "Connecting camera preview port to video render.\n");
-
-         // Note we are lucky that the preview and null sink components use the same input port
-         // so we can simple do this without conditionals
-         preview_input_port  = state.preview_parameters.preview_component->input[0];
-
-         // Connect camera to preview (which might be a null_sink if no preview required)
-         status = connect_ports(camera_preview_port, preview_input_port, &state.preview_connection);
-      }
 
       if (status == MMAL_SUCCESS)
       {
@@ -1635,7 +1603,7 @@ int main(int argc, const char **argv)
          vcos_assert(vcos_status == VCOS_SUCCESS);
 
          /* If GL preview is requested then start the GL threads */
-         if (state.useGL && (raspitex_start(&state.raspitex_state) != 0))
+         if (raspitex_start(&state.raspitex_state) != 0)
             goto error;
 
          if (status != MMAL_SUCCESS)
@@ -1705,7 +1673,7 @@ int main(int argc, const char **argv)
                }
 
                // We only capture if a filename was specified and it opened
-               if (state.useGL && state.glCapture && output_file)
+               if (state.glCapture && output_file)
                {
                   /* Save the next GL framebuffer as the next camera still */
                   int rc = raspitex_capture(&state.raspitex_state, output_file);
@@ -1823,11 +1791,8 @@ error:
       if (state.verbose)
          fprintf(stderr, "Closing down\n");
 
-      if (state.useGL)
-      {
-         raspitex_stop(&state.raspitex_state);
-         raspitex_destroy(&state.raspitex_state);
-      }
+      raspitex_stop(&state.raspitex_state);
+      raspitex_destroy(&state.raspitex_state);
 
       // Disable all our ports that are not handled by connections
       check_disable_port(camera_video_port);
