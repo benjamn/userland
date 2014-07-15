@@ -70,6 +70,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "interface/mmal/util/mmal_default_components.h"
 #include "interface/mmal/util/mmal_connection.h"
 
+#include "tclled.h"
+#include <fcntl.h>
+#include <signal.h>
+#include <math.h>
+
+#ifndef SPIFILE
+#define SPIFILE "/dev/spidev0.0"
+#endif
+
+static const char *device = SPIFILE;
+static const int leds = 100;
 
 #include "RaspiCamControl.h"
 #include "RaspiPreview.h"

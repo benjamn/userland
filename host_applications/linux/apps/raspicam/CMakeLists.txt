@@ -29,6 +29,7 @@ add_executable(offgrid
   RaspiTex.c
   RaspiTexUtil.c
   tga.c
+  tclled.c
   ${GL_SCENE_SOURCES})
 
 set (MMAL_LIBS mmal_core mmal_util mmal_vc_client)
