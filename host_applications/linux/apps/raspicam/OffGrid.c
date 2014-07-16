@@ -27,7 +27,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 /**
- * \file RaspiStill.c
+ * \file OffGrid.c
  * Command line program to capture a still frame and encode it to file.
  * Also optionally display a preview/viewfinder of current camera input.
  *
@@ -159,7 +159,7 @@ typedef struct
 
    RASPITEX_STATE raspitex_state; /// GL renderer state and parameters
 
-} RASPISTILL_STATE;
+} OFFGRID_STATE;
 
 /** Struct used to pass information in encoder port userdata to callback
  */
@@ -167,11 +167,11 @@ typedef struct
 {
    FILE *file_handle;                   /// File handle to write buffer data to.
    VCOS_SEMAPHORE_T complete_semaphore; /// semaphore which is posted when we reach end of frame (indicates end of capture or fault)
-   RASPISTILL_STATE *pstate;            /// pointer to our state in case required in callback
+   OFFGRID_STATE *pstate;            /// pointer to our state in case required in callback
 } PORT_USERDATA;
 
 static void display_valid_parameters(char *app_name);
-static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag);
+static void store_exif_tag(OFFGRID_STATE *state, const char *exif_tag);
 
 /// Comamnd ID's and Structure defining our command line options
 #define CommandHelp         0
@@ -251,7 +251,7 @@ static int next_frame_description_size = sizeof(next_frame_description) / sizeof
  *
  * @param state Pointer to state structure to assign defaults to
  */
-static void default_status(RASPISTILL_STATE *state)
+static void default_status(OFFGRID_STATE *state)
 {
    if (!state)
    {
@@ -300,7 +300,7 @@ static void default_status(RASPISTILL_STATE *state)
  *
  * @param state Pointer to state structure to assign defaults to
  */
-static void dump_status(RASPISTILL_STATE *state)
+static void dump_status(OFFGRID_STATE *state)
 {
    int i;
 
@@ -366,7 +366,7 @@ static void dump_status(RASPISTILL_STATE *state)
  * @param state Pointer to state structure to assign any discovered parameters to
  * @return non-0 if failed for some reason, 0 otherwise
  */
-static int parse_cmdline(int argc, const char **argv, RASPISTILL_STATE *state)
+static int parse_cmdline(int argc, const char **argv, OFFGRID_STATE *state)
 {
    // Parse the command line arguments.
    // We are looking for --<something> or -<abreviation of something>
@@ -698,7 +698,7 @@ static void camera_control_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
  * @return MMAL_SUCCESS if all OK, something else otherwise
  *
  */
-static MMAL_STATUS_T create_camera_component(RASPISTILL_STATE *state)
+static MMAL_STATUS_T create_camera_component(OFFGRID_STATE *state)
 {
    MMAL_COMPONENT_T *camera = 0;
    MMAL_ES_FORMAT_T *format;
@@ -877,7 +877,7 @@ error:
  * @param state Pointer to state control struct
  *
  */
-static void destroy_camera_component(RASPISTILL_STATE *state)
+static void destroy_camera_component(OFFGRID_STATE *state)
 {
    if (state->camera_component)
    {
@@ -893,7 +893,7 @@ static void destroy_camera_component(RASPISTILL_STATE *state)
  *
  * @return a MMAL_STATUS, MMAL_SUCCESS if all OK, something else otherwise
  */
-static MMAL_STATUS_T create_encoder_component(RASPISTILL_STATE *state)
+static MMAL_STATUS_T create_encoder_component(OFFGRID_STATE *state)
 {
    MMAL_COMPONENT_T *encoder = 0;
    MMAL_PORT_T *encoder_input = NULL, *encoder_output = NULL;
@@ -1007,7 +1007,7 @@ static MMAL_STATUS_T create_encoder_component(RASPISTILL_STATE *state)
  * @param state Pointer to state control struct
  *
  */
-static void destroy_encoder_component(RASPISTILL_STATE *state)
+static void destroy_encoder_component(OFFGRID_STATE *state)
 {
    // Get rid of any port buffers first
    if (state->encoder_pool)
@@ -1022,39 +1022,6 @@ static void destroy_encoder_component(RASPISTILL_STATE *state)
    }
 }
 
-
-/**
- * Add an exif tag to the capture
- *
- * @param state Pointer to state control struct
- * @param exif_tag String containing a "key=value" pair.
- * @return  Returns a MMAL_STATUS_T giving result of operation
- */
-static MMAL_STATUS_T add_exif_tag(RASPISTILL_STATE *state, const char *exif_tag)
-{
-   MMAL_STATUS_T status;
-   MMAL_PARAMETER_EXIF_T *exif_param = (MMAL_PARAMETER_EXIF_T*)calloc(sizeof(MMAL_PARAMETER_EXIF_T) + MAX_EXIF_PAYLOAD_LENGTH, 1);
-
-   vcos_assert(state);
-   vcos_assert(state->encoder_component);
-
-   // Check to see if the tag is present or is indeed a key=value pair.
-   if (!exif_tag || strchr(exif_tag, '=') == NULL || strlen(exif_tag) > MAX_EXIF_PAYLOAD_LENGTH-1)
-      return MMAL_EINVAL;
-
-   exif_param->hdr.id = MMAL_PARAMETER_EXIF;
-
-   strncpy((char*)exif_param->data, exif_tag, MAX_EXIF_PAYLOAD_LENGTH-1);
-
-   exif_param->hdr.size = sizeof(MMAL_PARAMETER_EXIF_T) + strlen((char*)exif_param->data);
-
-   status = mmal_port_parameter_set(state->encoder_component->output[0], &exif_param->hdr);
-
-   free(exif_param);
-
-   return status;
-}
-
 /**
  * Stores an EXIF tag in the state, incrementing various pointers as necessary.
  * Any tags stored in this way will be added to the image file when add_exif_tags
@@ -1066,7 +1033,7 @@ static MMAL_STATUS_T add_exif_tag(RASPISTILL_STATE *state, const char *exif_tag)
  * @param exif_tag EXIF tag string
  *
  */
-static void store_exif_tag(RASPISTILL_STATE *state, const char *exif_tag)
+static void store_exif_tag(OFFGRID_STATE *state, const char *exif_tag)
 {
    if (state->numExifTags < MAX_USER_EXIF_TAGS)
    {
@@ -1171,7 +1138,7 @@ static void signal_handler(int signal_number)
  * @param [in][out] frame The last frame number, adjusted to next frame number on output
  * @return !0 if to continue, 0 if reached end of run
  */
-static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
+static int wait_for_next_frame(OFFGRID_STATE *state, int *frame)
 {
    static int64_t complete_time = -1;
    int keep_running = 1;
@@ -1337,7 +1304,7 @@ static int wait_for_next_frame(RASPISTILL_STATE *state, int *frame)
    return keep_running;
 }
 
-static void rename_file(RASPISTILL_STATE *state, FILE *output_file,
+static void rename_file(OFFGRID_STATE *state, FILE *output_file,
       const char *final_filename, const char *use_filename, int frame)
 {
    MMAL_STATUS_T status;
@@ -1375,7 +1342,7 @@ static void rename_file(RASPISTILL_STATE *state, FILE *output_file,
 int main(int argc, const char **argv)
 {
    // Our main data storage vessel..
-   RASPISTILL_STATE state;
+   OFFGRID_STATE state;
    int exit_code = EX_OK;
 
    MMAL_STATUS_T status = MMAL_SUCCESS;
@@ -1388,7 +1355,7 @@ int main(int argc, const char **argv)
    bcm_host_init();
 
    // Register our application with the logging system
-   vcos_log_register("RaspiStill", VCOS_LOG_CATEGORY);
+   vcos_log_register("OffGrid", VCOS_LOG_CATEGORY);
 
    signal(SIGINT, signal_handler);
 
@@ -1471,7 +1438,7 @@ int main(int argc, const char **argv)
          // Null until we open our filename
          callback_data.file_handle = NULL;
          callback_data.pstate = &state;
-         vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "RaspiStill-sem", 0);
+         vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "OffGrid-sem", 0);
 
          vcos_assert(vcos_status == VCOS_SUCCESS);
 
