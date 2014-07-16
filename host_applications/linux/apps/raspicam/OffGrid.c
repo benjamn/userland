@@ -129,7 +129,6 @@ typedef struct
    int wantRAW;                        /// Flag for whether the JPEG metadata also contains the RAW bayer image
    char *filename;                     /// filename of output file
    char *linkname;                     /// filename of output file
-   MMAL_PARAM_THUMBNAIL_CONFIG_T thumbnailConfig;
    int verbose;                        /// !0 if want detailed run information
    int fullResPreview;                 /// If set, the camera preview port runs at capture resolution. Reduces fps.
    int frameNextMethod;                /// Which method to use to advance to next frame
@@ -156,7 +155,6 @@ static void display_valid_parameters(char *app_name);
 #define CommandOutput       5
 #define CommandVerbose      6
 #define CommandTimeout      7
-#define CommandThumbnail    8
 #define CommandFullResPreview 13
 #define CommandLink         14
 #define CommandKeypress     15
@@ -172,7 +170,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandLink,    "-latest",     "l",  "Link latest complete image to filename <filename>", 1},
    { CommandVerbose, "-verbose",    "v",  "Output verbose information during run", 0 },
    { CommandTimeout, "-timeout",    "t",  "Time (in ms) before takes picture and shuts down (if not specified, set to 5s)", 1 },
-   { CommandThumbnail,"-thumb",     "th", "Set thumbnail parameters (x:y:quality) or none", 1},
    { CommandFullResPreview,"-fullpreview","fp", "Run the preview using the still capture resolution (may reduce preview fps)", 0},
    { CommandKeypress,"-keypress",   "k",  "Wait between captures for a ENTER, X then ENTER to exit", 0},
 };
@@ -200,10 +197,6 @@ static void default_status(OFFGRID_STATE *state)
    state->filename = NULL;
    state->linkname = NULL;
    state->verbose = 0;
-   state->thumbnailConfig.enable = 1;
-   state->thumbnailConfig.width = 64;
-   state->thumbnailConfig.height = 48;
-   state->thumbnailConfig.quality = 35;
    state->camera_component = NULL;
    state->preview_connection = NULL;
    state->fullResPreview = 0;
@@ -348,20 +341,6 @@ static int parse_cmdline(int argc, const char **argv, OFFGRID_STATE *state)
             valid = 0;
          break;
       }
-      case CommandThumbnail : // thumbnail parameters - needs string "x:y:quality"
-         if ( strcmp( argv[ i + 1 ], "none" ) == 0 )
-         {
-            state->thumbnailConfig.enable = 0;
-         }
-         else
-         {
-            sscanf(argv[i + 1], "%d:%d:%d",
-                   &state->thumbnailConfig.width,
-                   &state->thumbnailConfig.height,
-                   &state->thumbnailConfig.quality);
-         }
-         i++;
-         break;
 
       case CommandFullResPreview:
          state->fullResPreview = 1;
