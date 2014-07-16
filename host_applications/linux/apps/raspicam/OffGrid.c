@@ -218,21 +218,6 @@ static struct
 
 static int encoding_xref_size = sizeof(encoding_xref) / sizeof(encoding_xref[0]);
 
-
-static struct
-{
-   char *description;
-   int nextFrameMethod;
-} next_frame_description[] =
-{
-      {"Single capture",         FRAME_NEXT_SINGLE},
-      {"Capture on keypress",    FRAME_NEXT_KEYPRESS},
-      {"Run forever",            FRAME_NEXT_FOREVER},
-      {"Capture on GPIO",        FRAME_NEXT_GPIO},
-};
-
-static int next_frame_description_size = sizeof(next_frame_description) / sizeof(next_frame_description[0]);
-
 /**
  * Assign a default set of parameters to the state passed in
  *
@@ -277,69 +262,6 @@ static void default_status(OFFGRID_STATE *state)
 
    // Set initial GL preview state
    raspitex_set_defaults(&state->raspitex_state);
-}
-
-/**
- * Dump image state parameters to stderr. Used for debugging
- *
- * @param state Pointer to state structure to assign defaults to
- */
-static void dump_status(OFFGRID_STATE *state)
-{
-   int i;
-
-   if (!state)
-   {
-      vcos_assert(0);
-      return;
-   }
-
-   fprintf(stderr, "Width %d, Height %d, quality %d, filename %s\n", state->width,
-         state->height, state->quality, state->filename);
-   fprintf(stderr, "Time delay %d, Raw %s\n", state->timeout,
-         state->wantRAW ? "yes" : "no");
-   fprintf(stderr, "Thumbnail enabled %s, width %d, height %d, quality %d\n",
-         state->thumbnailConfig.enable ? "Yes":"No", state->thumbnailConfig.width,
-         state->thumbnailConfig.height, state->thumbnailConfig.quality);
-   fprintf(stderr, "Link to latest frame enabled ");
-   if (state->linkname)
-   {
-      fprintf(stderr, " yes, -> %s\n", state->linkname);
-   }
-   else
-   {
-      fprintf(stderr, " no\n");
-   }
-   fprintf(stderr, "Full resolution preview %s\n", state->fullResPreview ? "Yes": "No");
-
-   fprintf(stderr, "Capture method : ");
-   for (i=0;i<next_frame_description_size;i++)
-   {
-      if (state->frameNextMethod == next_frame_description[i].nextFrameMethod)
-         fprintf(stderr, next_frame_description[i].description);
-   }
-   fprintf(stderr, "\n\n");
-
-   if (state->enableExifTags)
-   {
-	   if (state->numExifTags)
-	   {
-		  fprintf(stderr, "User supplied EXIF tags :\n");
-
-		  for (i=0;i<state->numExifTags;i++)
-		  {
-			 fprintf(stderr, "%s", state->exifTags[i]);
-			 if (i != state->numExifTags-1)
-				fprintf(stderr, ",");
-		  }
-		  fprintf(stderr, "\n\n");
-	   }
-   }
-   else
-      fprintf(stderr, "EXIF tags disabled\n");
-
-   raspipreview_dump_parameters(&state->preview_parameters);
-   raspicamcontrol_dump_parameters(&state->camera_parameters);
 }
 
 /**
@@ -1234,8 +1156,6 @@ int main(int argc, const char **argv)
    if (state.verbose)
    {
       fprintf(stderr, "\n%s Camera App %s\n\n", basename(argv[0]), VERSION_STRING);
-
-      dump_status(&state);
    }
 
    raspitex_init(&state.raspitex_state);
