@@ -106,9 +106,6 @@ static const int leds = 100;
 /// Video render needs at least 2 buffers.
 #define VIDEO_OUTPUT_BUFFERS_NUM 3
 
-#define MAX_USER_EXIF_TAGS      32
-#define MAX_EXIF_PAYLOAD_LENGTH 128
-
 /// Frame advance method
 #define FRAME_NEXT_SINGLE        0
 #define FRAME_NEXT_KEYPRESS      2
@@ -135,9 +132,6 @@ typedef struct
    MMAL_PARAM_THUMBNAIL_CONFIG_T thumbnailConfig;
    int verbose;                        /// !0 if want detailed run information
    MMAL_FOURCC_T encoding;             /// Encoding to use for the output file.
-   const char *exifTags[MAX_USER_EXIF_TAGS]; /// Array of pointers to tags supplied from the command line
-   int numExifTags;                    /// Number of supplied tags
-   int enableExifTags;                 /// Enable/Disable EXIF tags in output
    int fullResPreview;                 /// If set, the camera preview port runs at capture resolution. Reduces fps.
    int frameNextMethod;                /// Which method to use to advance to next frame
 
@@ -166,7 +160,6 @@ typedef struct
 } PORT_USERDATA;
 
 static void display_valid_parameters(char *app_name);
-static void store_exif_tag(OFFGRID_STATE *state, const char *exif_tag);
 
 /// Comamnd ID's and Structure defining our command line options
 #define CommandHelp         0
@@ -179,7 +172,6 @@ static void store_exif_tag(OFFGRID_STATE *state, const char *exif_tag);
 #define CommandTimeout      7
 #define CommandThumbnail    8
 #define CommandEncoding     10
-#define CommandExifTag      11
 #define CommandFullResPreview 13
 #define CommandLink         14
 #define CommandKeypress     15
@@ -197,7 +189,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandTimeout, "-timeout",    "t",  "Time (in ms) before takes picture and shuts down (if not specified, set to 5s)", 1 },
    { CommandThumbnail,"-thumb",     "th", "Set thumbnail parameters (x:y:quality) or none", 1},
    { CommandEncoding,"-encoding",   "e",  "Encoding to use for output file (jpg, bmp, gif, png)", 1},
-   { CommandExifTag, "-exif",       "x",  "EXIF tag to apply to captures (format as 'key=value') or none", 1},
    { CommandFullResPreview,"-fullpreview","fp", "Run the preview using the still capture resolution (may reduce preview fps)", 0},
    { CommandKeypress,"-keypress",   "k",  "Wait between captures for a ENTER, X then ENTER to exit", 0},
 };
@@ -249,8 +240,6 @@ static void default_status(OFFGRID_STATE *state)
    state->encoder_connection = NULL;
    state->encoder_pool = NULL;
    state->encoding = MMAL_ENCODING_JPEG;
-   state->numExifTags = 0;
-   state->enableExifTags = 1;
    state->fullResPreview = 0;
    state->frameNextMethod = FRAME_NEXT_SINGLE;
 
@@ -429,18 +418,6 @@ static int parse_cmdline(int argc, const char **argv, OFFGRID_STATE *state)
          }
          break;
       }
-
-      case CommandExifTag:
-         if ( strcmp( argv[ i + 1 ], "none" ) == 0 )
-         {
-            state->enableExifTags = 0;
-         }
-         else
-         {
-            store_exif_tag(state, argv[i+1]);
-         }
-         i++;
-         break;
 
       case CommandFullResPreview:
          state->fullResPreview = 1;
@@ -881,26 +858,6 @@ static void destroy_encoder_component(OFFGRID_STATE *state)
    {
       mmal_component_destroy(state->encoder_component);
       state->encoder_component = NULL;
-   }
-}
-
-/**
- * Stores an EXIF tag in the state, incrementing various pointers as necessary.
- * Any tags stored in this way will be added to the image file when add_exif_tags
- * is called
- *
- * Will not store if run out of storage space
- *
- * @param state Pointer to state control struct
- * @param exif_tag EXIF tag string
- *
- */
-static void store_exif_tag(OFFGRID_STATE *state, const char *exif_tag)
-{
-   if (state->numExifTags < MAX_USER_EXIF_TAGS)
-   {
-      state->exifTags[state->numExifTags] = exif_tag;
-      state->numExifTags++;
    }
 }
 
