@@ -111,7 +111,6 @@ static const int leds = 100;
 
 /// Frame advance method
 #define FRAME_NEXT_SINGLE        0
-#define FRAME_NEXT_TIMELAPSE     1
 #define FRAME_NEXT_KEYPRESS      2
 #define FRAME_NEXT_FOREVER       3
 #define FRAME_NEXT_GPIO          4
@@ -142,7 +141,6 @@ typedef struct
    const char *exifTags[MAX_USER_EXIF_TAGS]; /// Array of pointers to tags supplied from the command line
    int numExifTags;                    /// Number of supplied tags
    int enableExifTags;                 /// Enable/Disable EXIF tags in output
-   int timelapse;                      /// Delay between each picture in timelapse mode. If 0, disable timelapse
    int fullResPreview;                 /// If set, the camera preview port runs at capture resolution. Reduces fps.
    int frameNextMethod;                /// Which method to use to advance to next frame
 
@@ -186,7 +184,6 @@ static void store_exif_tag(OFFGRID_STATE *state, const char *exif_tag);
 #define CommandDemoMode     9
 #define CommandEncoding     10
 #define CommandExifTag      11
-#define CommandTimelapse    12
 #define CommandFullResPreview 13
 #define CommandLink         14
 #define CommandKeypress     15
@@ -207,7 +204,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandDemoMode,"-demo",       "d",  "Run a demo mode (cycle through range of camera options, no capture)", 0},
    { CommandEncoding,"-encoding",   "e",  "Encoding to use for output file (jpg, bmp, gif, png)", 1},
    { CommandExifTag, "-exif",       "x",  "EXIF tag to apply to captures (format as 'key=value') or none", 1},
-   { CommandTimelapse,"-timelapse", "tl", "Timelapse mode. Takes a picture every <t>ms", 1},
    { CommandFullResPreview,"-fullpreview","fp", "Run the preview using the still capture resolution (may reduce preview fps)", 0},
    { CommandKeypress,"-keypress",   "k",  "Wait between captures for a ENTER, X then ENTER to exit", 0},
    { CommandSignal,  "-signal",     "s",  "Wait between captures for a SIGUSR1 from another process", 0},
@@ -237,7 +233,6 @@ static struct
 } next_frame_description[] =
 {
       {"Single capture",         FRAME_NEXT_SINGLE},
-      {"Capture on timelapse",   FRAME_NEXT_TIMELAPSE},
       {"Capture on keypress",    FRAME_NEXT_KEYPRESS},
       {"Run forever",            FRAME_NEXT_FOREVER},
       {"Capture on GPIO",        FRAME_NEXT_GPIO},
@@ -281,7 +276,6 @@ static void default_status(OFFGRID_STATE *state)
    state->encoding = MMAL_ENCODING_JPEG;
    state->numExifTags = 0;
    state->enableExifTags = 1;
-   state->timelapse = 0;
    state->fullResPreview = 0;
    state->frameNextMethod = FRAME_NEXT_SINGLE;
 
@@ -557,21 +551,6 @@ static int parse_cmdline(int argc, const char **argv, OFFGRID_STATE *state)
             store_exif_tag(state, argv[i+1]);
          }
          i++;
-         break;
-
-      case CommandTimelapse:
-         if (sscanf(argv[i + 1], "%u", &state->timelapse) != 1)
-            valid = 0;
-         else
-         {
-            if (state->timelapse)
-               state->frameNextMethod = FRAME_NEXT_TIMELAPSE;
-            else
-               state->frameNextMethod = FRAME_NEXT_IMMEDIATELY;
-
-
-            i++;
-         }
          break;
 
       case CommandFullResPreview:
@@ -1169,56 +1148,6 @@ static int wait_for_next_frame(OFFGRID_STATE *state, int *frame)
 
       // Run forever so never indicate end of loop
       return 1;
-   }
-
-   case FRAME_NEXT_TIMELAPSE :
-   {
-      static int64_t next_frame_ms = -1;
-
-      // Always need to increment by at least one, may add a skip later
-      *frame += 1;
-
-      if (next_frame_ms == -1)
-      {
-         vcos_sleep(state->timelapse);
-
-         // Update our current time after the sleep
-         current_time =  vcos_getmicrosecs64()/1000;
-
-         // Set our initial 'next frame time'
-         next_frame_ms = current_time + state->timelapse;
-      }
-      else
-      {
-         int64_t this_delay_ms = next_frame_ms - current_time;
-
-         if (this_delay_ms < 0)
-         {
-            // We are already past the next exposure time
-            if (-this_delay_ms < -state->timelapse/2)
-            {
-               // Less than a half frame late, take a frame and hope to catch up next time
-               next_frame_ms += state->timelapse;
-               vcos_log_error("Frame %d is %d ms late", *frame, (int)(-this_delay_ms));
-            }
-            else
-            {
-               int nskip = 1 + (-this_delay_ms)/state->timelapse;
-               vcos_log_error("Skipping frame %d to restart at frame %d", *frame, *frame+nskip);
-               *frame += nskip;
-               this_delay_ms += nskip * state->timelapse;
-               vcos_sleep(this_delay_ms);
-               next_frame_ms += (nskip + 1) * state->timelapse;
-            }
-         }
-         else
-         {
-            vcos_sleep(this_delay_ms);
-            next_frame_ms += state->timelapse;
-         }
-      }
-
-      return keep_running;
    }
 
    case FRAME_NEXT_KEYPRESS :
