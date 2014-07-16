@@ -135,8 +135,6 @@ typedef struct
    char *linkname;                     /// filename of output file
    MMAL_PARAM_THUMBNAIL_CONFIG_T thumbnailConfig;
    int verbose;                        /// !0 if want detailed run information
-   int demoMode;                       /// Run app in demo mode
-   int demoInterval;                   /// Interval between camera settings changes
    MMAL_FOURCC_T encoding;             /// Encoding to use for the output file.
    const char *exifTags[MAX_USER_EXIF_TAGS]; /// Array of pointers to tags supplied from the command line
    int numExifTags;                    /// Number of supplied tags
@@ -181,7 +179,6 @@ static void store_exif_tag(OFFGRID_STATE *state, const char *exif_tag);
 #define CommandVerbose      6
 #define CommandTimeout      7
 #define CommandThumbnail    8
-#define CommandDemoMode     9
 #define CommandEncoding     10
 #define CommandExifTag      11
 #define CommandFullResPreview 13
@@ -201,7 +198,6 @@ static COMMAND_LIST cmdline_commands[] =
    { CommandVerbose, "-verbose",    "v",  "Output verbose information during run", 0 },
    { CommandTimeout, "-timeout",    "t",  "Time (in ms) before takes picture and shuts down (if not specified, set to 5s)", 1 },
    { CommandThumbnail,"-thumb",     "th", "Set thumbnail parameters (x:y:quality) or none", 1},
-   { CommandDemoMode,"-demo",       "d",  "Run a demo mode (cycle through range of camera options, no capture)", 0},
    { CommandEncoding,"-encoding",   "e",  "Encoding to use for output file (jpg, bmp, gif, png)", 1},
    { CommandExifTag, "-exif",       "x",  "EXIF tag to apply to captures (format as 'key=value') or none", 1},
    { CommandFullResPreview,"-fullpreview","fp", "Run the preview using the still capture resolution (may reduce preview fps)", 0},
@@ -266,8 +262,6 @@ static void default_status(OFFGRID_STATE *state)
    state->thumbnailConfig.width = 64;
    state->thumbnailConfig.height = 48;
    state->thumbnailConfig.quality = 35;
-   state->demoMode = 0;
-   state->demoInterval = 250; // ms
    state->camera_component = NULL;
    state->encoder_component = NULL;
    state->preview_connection = NULL;
@@ -495,29 +489,6 @@ static int parse_cmdline(int argc, const char **argv, OFFGRID_STATE *state)
          }
          i++;
          break;
-
-      case CommandDemoMode: // Run in demo mode - no capture
-      {
-         // Demo mode might have a timing parameter
-         // so check if a) we have another parameter, b) its not the start of the next option
-         if (i + 1 < argc  && argv[i+1][0] != '-')
-         {
-            if (sscanf(argv[i + 1], "%u", &state->demoInterval) == 1)
-            {
-               // TODO : What limits do we need for timeout?
-               state->demoMode = 1;
-               i++;
-            }
-            else
-               valid = 0;
-         }
-         else
-         {
-            state->demoMode = 1;
-         }
-
-         break;
-      }
 
       case CommandEncoding :
       {
@@ -1347,7 +1318,12 @@ int main(int argc, const char **argv)
       encoder_input_port  = state.encoder_component->input[0];
       encoder_output_port = state.encoder_component->output[0];
 
-      if (status == MMAL_SUCCESS)
+      if (status != MMAL_SUCCESS) {
+          mmal_status_to_int(status);
+          vcos_log_error("%s: Failed to connect camera to preview", __func__);
+          goto error;
+      }
+
       {
          VCOS_STATUS_T vcos_status;
 
@@ -1381,18 +1357,7 @@ int main(int argc, const char **argv)
             goto error;
          }
 
-         if (state.demoMode)
-         {
-            // Run for the user specific time..
-            int num_iterations = state.timeout / state.demoInterval;
-            int i;
-            for (i=0;i<num_iterations;i++)
-            {
-               raspicamcontrol_cycle_test(state.camera_component);
-               vcos_sleep(state.demoInterval);
-            }
-         }
-         else
+         if (1)
          {
             int frame, keep_looping = 1;
             FILE *output_file = NULL;
@@ -1465,11 +1430,6 @@ int main(int argc, const char **argv)
 
             vcos_semaphore_delete(&callback_data.complete_semaphore);
          }
-      }
-      else
-      {
-         mmal_status_to_int(status);
-         vcos_log_error("%s: Failed to connect camera to preview", __func__);
       }
 
 error:
