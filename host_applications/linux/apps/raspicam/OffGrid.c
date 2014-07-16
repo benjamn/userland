@@ -691,74 +691,6 @@ static void camera_control_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
 }
 
 /**
- *  buffer header callback function for encoder
- *
- *  Callback will dump buffer data to the specific file
- *
- * @param port Pointer to port from which callback originated
- * @param buffer mmal buffer header pointer
- */
-static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
-{
-   int complete = 0;
-
-   // We pass our file handle and other stuff in via the userdata field.
-
-   PORT_USERDATA *pData = (PORT_USERDATA *)port->userdata;
-
-   if (pData)
-   {
-      int bytes_written = buffer->length;
-
-      if (buffer->length && pData->file_handle)
-      {
-         mmal_buffer_header_mem_lock(buffer);
-
-         bytes_written = fwrite(buffer->data, 1, buffer->length, pData->file_handle);
-
-         mmal_buffer_header_mem_unlock(buffer);
-      }
-
-      // We need to check we wrote what we wanted - it's possible we have run out of storage.
-      if (bytes_written != buffer->length)
-      {
-         vcos_log_error("Unable to write buffer to file - aborting");
-         complete = 1;
-      }
-
-      // Now flag if we have completed
-      if (buffer->flags & (MMAL_BUFFER_HEADER_FLAG_FRAME_END | MMAL_BUFFER_HEADER_FLAG_TRANSMISSION_FAILED))
-         complete = 1;
-   }
-   else
-   {
-      vcos_log_error("Received a encoder buffer callback with no state");
-   }
-
-   // release buffer back to the pool
-   mmal_buffer_header_release(buffer);
-
-   // and send one back to the port (if still open)
-   if (port->is_enabled)
-   {
-      MMAL_STATUS_T status = MMAL_SUCCESS;
-      MMAL_BUFFER_HEADER_T *new_buffer;
-
-      new_buffer = mmal_queue_get(pData->pstate->encoder_pool->queue);
-
-      if (new_buffer)
-      {
-         status = mmal_port_send_buffer(port, new_buffer);
-      }
-      if (!new_buffer || status != MMAL_SUCCESS)
-         vcos_log_error("Unable to return a buffer to the encoder port");
-   }
-
-   if (complete)
-      vcos_semaphore_post(&(pData->complete_semaphore));
-}
-
-/**
  * Create the camera component, set up its ports
  *
  * @param state Pointer to state control struct. camera_component member set to the created camera_component if successfull.
@@ -1124,56 +1056,6 @@ static MMAL_STATUS_T add_exif_tag(RASPISTILL_STATE *state, const char *exif_tag)
 }
 
 /**
- * Add a basic set of EXIF tags to the capture
- * Make, Time etc
- *
- * @param state Pointer to state control struct
- *
- */
-static void add_exif_tags(RASPISTILL_STATE *state)
-{
-   time_t rawtime;
-   struct tm *timeinfo;
-   char time_buf[32];
-   char exif_buf[128];
-   int i;
-
-   add_exif_tag(state, "IFD0.Model=RP_OV5647");
-   add_exif_tag(state, "IFD0.Make=RaspberryPi");
-
-   time(&rawtime);
-   timeinfo = localtime(&rawtime);
-
-   snprintf(time_buf, sizeof(time_buf),
-            "%04d:%02d:%02d %02d:%02d:%02d",
-            timeinfo->tm_year+1900,
-            timeinfo->tm_mon+1,
-            timeinfo->tm_mday,
-            timeinfo->tm_hour,
-            timeinfo->tm_min,
-            timeinfo->tm_sec);
-
-   snprintf(exif_buf, sizeof(exif_buf), "EXIF.DateTimeDigitized=%s", time_buf);
-   add_exif_tag(state, exif_buf);
-
-   snprintf(exif_buf, sizeof(exif_buf), "EXIF.DateTimeOriginal=%s", time_buf);
-   add_exif_tag(state, exif_buf);
-
-   snprintf(exif_buf, sizeof(exif_buf), "IFD0.DateTime=%s", time_buf);
-   add_exif_tag(state, exif_buf);
-
-   // Now send any user supplied tags
-
-   for (i=0;i<state->numExifTags && i < MAX_USER_EXIF_TAGS;i++)
-   {
-      if (state->exifTags[i])
-      {
-         add_exif_tag(state, state->exifTags[i]);
-      }
-   }
-}
-
-/**
  * Stores an EXIF tag in the state, incrementing various pointers as necessary.
  * Any tags stored in this way will be added to the image file when add_exif_tags
  * is called
@@ -1500,7 +1382,6 @@ int main(int argc, const char **argv)
    MMAL_PORT_T *camera_preview_port = NULL;
    MMAL_PORT_T *camera_video_port = NULL;
    MMAL_PORT_T *camera_still_port = NULL;
-   MMAL_PORT_T *preview_input_port = NULL;
    MMAL_PORT_T *encoder_input_port = NULL;
    MMAL_PORT_T *encoder_output_port = NULL;
 
