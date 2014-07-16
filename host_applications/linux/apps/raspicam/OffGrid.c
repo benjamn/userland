@@ -1324,113 +1324,98 @@ int main(int argc, const char **argv)
           goto error;
       }
 
-      {
-         VCOS_STATUS_T vcos_status;
+      VCOS_STATUS_T vcos_status;
 
-         if (state.verbose)
-            fprintf(stderr, "Connecting camera stills port to encoder input port\n");
+      if (state.verbose)
+          fprintf(stderr, "Connecting camera stills port to encoder input port\n");
 
-         // Now connect the camera to the encoder
-         status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
+      // Now connect the camera to the encoder
+      status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
 
-         if (status != MMAL_SUCCESS)
-         {
-            vcos_log_error("%s: Failed to connect camera video port to encoder input", __func__);
-            goto error;
-         }
-
-         // Set up our userdata - this is passed though to the callback where we need the information.
-         // Null until we open our filename
-         callback_data.file_handle = NULL;
-         callback_data.pstate = &state;
-         vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "OffGrid-sem", 0);
-
-         vcos_assert(vcos_status == VCOS_SUCCESS);
-
-         /* If GL preview is requested then start the GL threads */
-         if (raspitex_start(&state.raspitex_state) != 0)
-            goto error;
-
-         if (status != MMAL_SUCCESS)
-         {
-            vcos_log_error("Failed to setup encoder output");
-            goto error;
-         }
-
-         if (1)
-         {
-            int frame, keep_looping = 1;
-            FILE *output_file = NULL;
-            char *use_filename = NULL;      // Temporary filename while image being written
-            char *final_filename = NULL;    // Name that file gets once writing complete
-
-            frame = 0;
-
-            while (keep_looping)
-            {
-            	keep_looping = wait_for_next_frame(&state, &frame);
-
-               // Open the file
-               if (state.filename)
-               {
-                  if (state.filename[0] == '-')
-                  {
-                     output_file = stdout;
-
-                     // Ensure we don't upset the output stream with diagnostics/info
-                     state.verbose = 0;
-                  }
-                  else
-                  {
-                     vcos_assert(use_filename == NULL && final_filename == NULL);
-                     status = create_filenames(&final_filename, &use_filename, state.filename, frame);
-                     if (status  != MMAL_SUCCESS)
-                     {
-                        vcos_log_error("Unable to create filenames");
-                        goto error;
-                     }
-
-                     if (state.verbose)
-                        fprintf(stderr, "Opening output file %s\n", final_filename);
-                        // Technically it is opening the temp~ filename which will be ranamed to the final filename
-
-                     output_file = fopen(use_filename, "wb");
-
-                     if (!output_file)
-                     {
-                        // Notify user, carry on but discarding encoded output buffers
-                        vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, use_filename);
-                     }
-                  }
-
-                  callback_data.file_handle = output_file;
-               }
-
-               // We only capture if a filename was specified and it opened
-               if (output_file)
-               {
-                  /* Save the next GL framebuffer as the next camera still */
-                  int rc = raspitex_capture(&state.raspitex_state, output_file);
-                  if (rc != 0)
-                     vcos_log_error("Failed to capture GL preview");
-                  rename_file(&state, output_file, final_filename, use_filename, frame);
-               }
-
-               if (use_filename)
-               {
-                  free(use_filename);
-                  use_filename = NULL;
-               }
-               if (final_filename)
-               {
-                  free(final_filename);
-                  final_filename = NULL;
-               }
-            } // end for (frame)
-
-            vcos_semaphore_delete(&callback_data.complete_semaphore);
-         }
+      if (status != MMAL_SUCCESS) {
+          vcos_log_error("%s: Failed to connect camera video port to encoder input", __func__);
+          goto error;
       }
+
+      // Set up our userdata - this is passed though to the callback where we need the information.
+      // Null until we open our filename
+      callback_data.file_handle = NULL;
+      callback_data.pstate = &state;
+      vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "OffGrid-sem", 0);
+
+      vcos_assert(vcos_status == VCOS_SUCCESS);
+
+      /* If GL preview is requested then start the GL threads */
+      if (raspitex_start(&state.raspitex_state) != 0)
+          goto error;
+
+      if (status != MMAL_SUCCESS) {
+          vcos_log_error("Failed to setup encoder output");
+          goto error;
+      }
+
+      int frame, keep_looping = 1;
+      FILE *output_file = NULL;
+      char *use_filename = NULL;      // Temporary filename while image being written
+      char *final_filename = NULL;    // Name that file gets once writing complete
+
+      frame = 0;
+
+      while (keep_looping) {
+          keep_looping = wait_for_next_frame(&state, &frame);
+
+          // Open the file
+          if (state.filename) {
+              if (state.filename[0] == '-') {
+                  output_file = stdout;
+
+                  // Ensure we don't upset the output stream with diagnostics/info
+                  state.verbose = 0;
+
+              } else {
+                  vcos_assert(use_filename == NULL && final_filename == NULL);
+                  status = create_filenames(&final_filename, &use_filename, state.filename, frame);
+                  if (status != MMAL_SUCCESS) {
+                      vcos_log_error("Unable to create filenames");
+                      goto error;
+                  }
+
+                  if (state.verbose)
+                      fprintf(stderr, "Opening output file %s\n", final_filename);
+                  // Technically it is opening the temp~ filename which will be ranamed to the final filename
+
+                  output_file = fopen(use_filename, "wb");
+
+                  if (!output_file) {
+                      // Notify user, carry on but discarding encoded output buffers
+                      vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, use_filename);
+                  }
+              }
+
+              callback_data.file_handle = output_file;
+          }
+
+          // We only capture if a filename was specified and it opened
+          if (output_file) {
+              /* Save the next GL framebuffer as the next camera still */
+              int rc = raspitex_capture(&state.raspitex_state, output_file);
+              if (rc != 0)
+                  vcos_log_error("Failed to capture GL preview");
+              rename_file(&state, output_file, final_filename, use_filename, frame);
+          }
+
+          if (use_filename) {
+              free(use_filename);
+              use_filename = NULL;
+          }
+
+          if (final_filename) {
+              free(final_filename);
+              final_filename = NULL;
+          }
+      } // end for (frame)
+
+      vcos_semaphore_delete(&callback_data.complete_semaphore);
 
 error:
 
